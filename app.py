@@ -1,15 +1,19 @@
 import os
+from datetime import datetime
+import requests
+from dotenv import load_dotenv
 import re
 import json
 import html
 from datetime import datetime
 from urllib.parse import quote_plus, urlparse
-
+from n8n_utils import send_telegram_post
 import feedparser
 import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 
+load_dotenv()
 try:
     import trafilatura
 except Exception:
@@ -100,6 +104,12 @@ def get_model():
     try: m=st.secrets.get("OPENAI_MODEL","")
     except: m=""
     return m or os.getenv("OPENAI_MODEL","gpt-4o-mini")
+
+def get_webhook():
+    try: m=st.secrets.get("N8N_WEBHOOK_URL","")
+    except: m=""
+    return m or os.getenv("N8N_WEBHOOK_URL","")
+
 
 def build_client(): return OpenAI(api_key=get_api_key())
 
@@ -357,7 +367,13 @@ with st.sidebar:
 # ╚══════════════════════════════════════════════════════════════╝
 st.markdown(f'<div class="hero-header"><div class="hero-title">Digital Media Assistant</div><div class="hero-subtitle">{"حلّل · قارن · تحقّق · انشر" if is_ar else "Analyze · Compare · Verify · Publish"}</div></div>',unsafe_allow_html=True)
 
-input_mode=st.radio("",["🔗 "+("رابط" if is_ar else "URL"),"📝 "+("نص" if is_ar else "Text"),"🔄 "+("تحليل دفعي" if is_ar else "Batch")],horizontal=True,label_visibility="collapsed")
+input_mode = st.radio(
+    "",
+    ["🔗 "+("رابط" if is_ar else "URL"),
+     "📝 "+("نص" if is_ar else "Text")],
+    horizontal=True,
+    label_visibility="collapsed"
+)
 article_title=article_text=url_value=""
 batch_urls_text=""
 is_url="URL" in input_mode or "رابط" in input_mode
@@ -491,7 +507,7 @@ if st.session_state.analysis:
     an=st.session_state.analysis; comp=st.session_state.comparison or {}; cred=st.session_state.credibility or {}
     ep=st.session_state.export_posts or {}; rsrc=st.session_state.related_sources or []; ra=st.session_state.related_analyses or []
 
-    tabs=st.tabs(["📋 "+("الملخص" if is_ar else "Summary"),"📊 "+("الداشبورد" if is_ar else "Dashboard"),"🕐 "+("التايم لاين" if is_ar else "Timeline"),"🔍 "+("كشف التضليل" if is_ar else "Fake Check"),"⚖️ "+("المقارنة" if is_ar else "Compare"),"🛡️ "+("المصداقية" if is_ar else "Credibility"),"🤖 "+("المحادثة" if is_ar else "Chat"),"📝 "+("مقال" if is_ar else "Article"),"📤 "+("تصدير" if is_ar else "Export")])
+    tabs=st.tabs(["📋 "+("الملخص" if is_ar else "Summary"),"📊 "+("الداشبورد" if is_ar else "Dashboard"),"🕐 "+("التايم لاين" if is_ar else "Timeline"),"🔍 "+("كشف التضليل" if is_ar else "Fake Check"),"⚖️ "+("ذات صلة" if is_ar else "Related to"),"🛡️ "+("المصداقية" if is_ar else "Credibility"),"🤖 "+("المحادثة" if is_ar else "Chat"),"📝 "+("مقال" if is_ar else "Article"),"📤 "+("تصدير" if is_ar else "Export")])
 
     # ── TAB 1: Summary ──
     with tabs[0]:
@@ -692,7 +708,12 @@ if st.session_state.analysis:
             for k,v in {"telegram":"#26A5E4","linkedin":"#0A66C2","x_post":"#f0eff4","instagram":"#E4405F","email":"#f5a623"}.items():
                 if k in pk: return v
             return "#6c63ff"
-        plats=[("📱 Telegram AR","telegram_ar"),("📱 Telegram EN","telegram_en"),("💼 LinkedIn EN","linkedin_en"),("💼 LinkedIn AR","linkedin_ar"),("🐦 X EN","x_post_en"),("🐦 X AR","x_post_ar"),("📸 Instagram EN","instagram_caption_en"),("📸 Instagram AR","instagram_caption_ar"),("📧 Email EN","email_newsletter_en"),("📧 Email AR","email_newsletter_ar")]
+        plats=[("📱 Telegram AR","telegram_ar"),("📱 Telegram EN","telegram_en")
+               # ("💼 LinkedIn EN","linkedin_en"),("💼 LinkedIn AR","linkedin_ar"),
+               # ("🐦 X EN","x_post_en"),("🐦 X AR","x_post_ar"),
+               # ("📸 Instagram EN","instagram_caption_en"),("📸 Instagram AR","instagram_caption_ar"),(
+               #     "📧 Email EN","email_newsletter_en"),("📧 Email AR","email_newsletter_ar")
+               ]
         ec1,ec2=st.columns(2)
         for idx,(lbl,key) in enumerate(plats):
             cnt=ep.get(key,""); col=ec1 if idx%2==0 else ec2; ac=_ac(key)
@@ -703,8 +724,15 @@ if st.session_state.analysis:
                     b1,b2,b3=st.columns(3)
                     with b1: st.download_button("📋 "+("نسخ" if is_ar else "Copy"),cnt.encode(),f"{key}.txt","text/plain",key=f"dl_{key}")
                     with b2:
-                        su=_surl(key,cnt)
-                        if su: st.link_button(_slbl(key),su)
+                        if "telegram" in key:
+                            if st.button("📤 Telegram", key=f"tg_{key}"):
+                                lang = "ar" if "ar" in key else "en"
+
+                                ok, res = send_telegram_post(cnt, lang, get_webhook())
+                                if ok:
+                                    st.success("✅ Sent to Telegram via n8n")
+                                else:
+                                    st.error(f"❌ Failed: {res}")
                     with b3: st.download_button("💾",cnt.encode(),f"{key}.txt","text/plain",key=f"sv_{key}")
         st.markdown("---")
         rh=st.session_state.report_html

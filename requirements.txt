@@ -5,3 +5,4 @@ beautifulsoup4
 feedparser
 trafilatura
 lxml
+python-dotenv
